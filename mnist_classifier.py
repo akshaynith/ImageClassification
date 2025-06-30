@@ -1,86 +1,138 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torchvision.datasets import MNIST
+from torchvision import transforms
 
-# 1. Define Transformations and Load Data
-# Define a sequence of transformations to apply to the images.
-# transforms.ToTensor() converts the image to a PyTorch tensor.
-# transforms.Normalize() normalizes the tensor with a given mean and standard deviation.
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+# Define a transform to convert images to tensors and normalize them
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-# Load the MNIST training and test datasets.
-# The data will be downloaded to the './data' directory if not already present.
-train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+# Load the MNIST training dataset
+train_dataset = MNIST(root='./data', train=True, download=True, transform=transform)
 
-# Create DataLoaders for the training and test datasets.
-# DataLoader provides an iterable over the given dataset, with options for batching, shuffling, etc.
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+# Load the MNIST test dataset
+test_dataset = MNIST(root='./data', train=False, download=True, transform=transform)
 
-# 2. Define the Neural Network Model (CNN)
+# Print the size of the datasets to verify
+print(f"Size of training dataset: {len(train_dataset)}")
+print(f"Size of test dataset: {len(test_dataset)}")
+
+# Access a single sample from the train_dataset using indexing (which calls __getitem__)
+# Let's get the sample at index 0
+image_sample, label_sample = train_dataset[0]
+
+# Print information about the single sample
+print("Shape of the single image sample:", image_sample.shape)
+print("Data type of the single image sample:", image_sample.dtype)
+print("Value of the single label sample:", label_sample)
+
+# You can also access other samples by changing the index, e.g., train_dataset[1], train_dataset[100], etc.
+
+
+from torch.utils.data import DataLoader
+
+# Create data loaders
+batch_size = 64
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+# Print the number of batches
+print(f"Number of batches in train_loader: {len(train_loader)}")
+print(f"Number of batches in test_loader: {len(test_loader)}")
+
+# Get one batch of training data
+images, labels = next(iter(train_loader))
+
+# Print the shape of images and labels in the batch
+print("Shape of images in one training batch:", images.shape)
+print("Shape of labels in one training batch:", labels.shape)
+
+import torch.nn as nn
+import torch.nn.functional as F
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # Convolutional Layer 1: 1 input channel (grayscale), 32 output channels, 3x3 kernel
+        # First convolutional layer
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        # Convolutional Layer 2: 32 input channels, 64 output channels, 3x3 kernel
+        # Second convolutional layer
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        # Max Pooling Layer: 2x2 kernel, stride of 2
+        # Max pooling layer
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        # Fully Connected Layer 1: input features from flattened conv layers, 128 output features
-        # Calculation: After conv1 (28-3+1=26), pool1 (26/2=13), conv2 (13-3+1=11), pool2 (11/2=5) -> 64x5x5
+        # Fully connected layers
+        # Calculate the size of the flattened output after conv and pool layers
+        # Input image size is 28x28
+        # After conv1 (3x3 kernel, no padding): (28 - 3 + 1) = 26x26
+        # After pool1 (2x2 kernel, stride 2): 26 / 2 = 13x13
+        # After conv2 (3x3 kernel, no padding): (13 - 3 + 1) = 11x11
+        # After pool2 (2x2 kernel, stride 2): 11 / 2 = 5x5 (integer division)
+        # The number of channels after conv2 is 64
         self.fc1 = nn.Linear(64 * 5 * 5, 128)
-        # Fully Connected Layer 2 (Output Layer): 128 input features, 10 output features (for digits 0-9)
-        self.fc2 = nn.Linear(128, 10)
+        self.fc2 = nn.Linear(128, 10) # 10 output classes for digits 0-9
 
     def forward(self, x):
-        # Apply conv1, relu activation, and pooling
+        # Apply first conv and pool, then ReLU
         x = self.pool(F.relu(self.conv1(x)))
-        # Apply conv2, relu activation, and pooling
+        # Apply second conv and pool, then ReLU
         x = self.pool(F.relu(self.conv2(x)))
-        # Flatten the tensor for the fully connected layer
+        # Flatten the output for the fully connected layers
         x = x.view(-1, 64 * 5 * 5)
-        # Apply fc1 and relu activation
+        # Apply first fully connected layer and ReLU
         x = F.relu(self.fc1(x))
-        # Apply fc2 to get the final output logits
+        # Apply second fully connected layer (output layer)
         x = self.fc2(x)
         return x
 
-model = Net()
+# Instantiate and move model to device
+model = Net().to(device)
+print(model)
 
-# 3. Define Loss Function and Optimizer
+# Print the model structure
+print(model)
+
+import torch.optim as optim
+import torch.nn as nn
+
+# Specify the loss function
 criterion = nn.CrossEntropyLoss()
+
+# Specify the optimizer
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# 4. Training Loop
+print("Loss function and optimizer specified.")
+
+# Set the model to training mode
+model.train()
+
 epochs = 5
 for epoch in range(epochs):
-    model.train() # Set the model to training mode
     running_loss = 0.0
     for i, data in enumerate(train_loader, 0):
+        # Get the inputs and labels
         inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device) # Move to device (GPU or CPU)
 
         # Zero the parameter gradients
         optimizer.zero_grad()
 
         # Forward pass
         outputs = model(inputs)
-        # Calculate loss
+
+        # Calculate the loss
         loss = criterion(outputs, labels)
+
         # Backward pass and optimize
         loss.backward()
         optimizer.step()
 
+        # Print statistics
         running_loss += loss.item()
-        if i % 200 == 199:    # Print every 200 mini-batches
-            print(f'Epoch [{epoch + 1}/{epochs}], Batch [{i + 1}/{len(train_loader)}], Loss: {running_loss / 200:.4f}')
+        if i % 100 == 99:    # print every 100 batches
+            print(f'Epoch [{epoch + 1}/{epochs}], Batch [{i + 1}/{len(train_loader)}], Loss: {running_loss / 100:.4f}')
             running_loss = 0.0
 
     # Optional: Evaluate on the test set after each epoch
@@ -90,15 +142,69 @@ for epoch in range(epochs):
     with torch.no_grad(): # Disable gradient calculation for evaluation
         for data in test_loader:
             images, labels = data
+            images, labels = images.to(device), labels.to(device) # Move to device (GPU or CPU)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
     print(f'Epoch [{epoch + 1}/{epochs}], Test Accuracy: {100 * correct / total:.2f}%')
+    model.train() # Set the model back to training mode
 
-print('Finished Training')
 
-# 5. Save the trained model (optional)
-torch.save(model.state_dict(), 'mnist_cnn_model.pth')
-print('Model saved to mnist_cnn_model.pth')
+    # Set the model to evaluation mode
+model.eval()
+
+# Disable gradient calculation
+with torch.no_grad():
+    correct = 0
+    total = 0
+    # Iterate through the test loader
+    for data in test_loader:
+        # Get the images and labels
+        images, labels = data
+        images, labels = images.to(device), labels.to(device) # Move to device (GPU or CPU)
+        # Pass the images through the model to get the outputs
+        outputs = model(images)
+        # Find the predicted class
+        _, predicted = torch.max(outputs.data, 1)
+        # Update the total count of images
+        total += labels.size(0)
+        # Update the count of correctly predicted images
+        correct += (predicted == labels).sum().item()
+
+# Calculate the final test accuracy
+accuracy = 100 * correct / total
+
+# Print the test accuracy
+print(f"Test Accuracy: {accuracy:.2f}%")
+
+# Select a few images from the test dataset
+num_images_to_predict = 5
+selected_images = []
+true_labels = []
+
+for i in range(num_images_to_predict):
+    image, label = test_dataset[i]
+    selected_images.append(image)
+    true_labels.append(label)
+
+selected_images = torch.stack(selected_images).to(device) # Stack the images and move to device
+true_labels_tensor = torch.tensor(true_labels).to(device) # Convert to tensor and move to device
+
+# Set the model to evaluation mode
+model.eval()
+
+# Disable gradient calculation
+with torch.no_grad():
+    # Pass the selected images through the model
+    outputs = model(selected_images)
+
+    # Determine the predicted class for each image
+    _, predicted_labels = torch.max(outputs.data, 1)
+
+
+# Print the predicted and true labels for comparison
+print("Predictions vs True Labels:")
+for i in range(num_images_to_predict):
+    print(f"Image {i+1}: Predicted = {predicted_labels[i].item()}, True = {true_labels_tensor[i].item()}")
